@@ -57,13 +57,17 @@ Use these conventions for all UI work under `lib/public/js` and `lib/public/css`
 - Primary actions: `ac-btn-cyan`
 - Secondary actions: `ac-btn-secondary`
 - Positive/success actions: `ac-btn-green`
+- Ghost/text actions: `ac-btn-ghost` (use for low-emphasis actions like "Disconnect" or "Add provider")
+- Destructive inline actions: `ac-btn-danger`
 - Use consistent disabled treatment: `opacity-50 cursor-not-allowed`.
 - Keep action sizing consistent (`text-xs px-3 py-1.5 rounded-lg` for compact controls unless there is a clear reason otherwise).
-- Prefer shared action components when available (`UpdateActionButton`, `ConfirmDialog`) before custom button logic.
+- For `<PageHeader />` actions, use `ac-btn-cyan` (primary) or `ac-btn-secondary` (secondary) by default; avoid ghost/text-only styling for main header actions.
+- Prefer shared action components when available (`ActionButton`, `UpdateActionButton`, `ConfirmDialog`) before custom button logic.
 
 #### Dialogs and modals
 
 - Use `<ConfirmDialog />` for destructive/confirmation flows.
+- Use `<ModalShell />` for non-confirm custom modals that need shared overlay and Escape handling.
 - Modal overlay convention:
   - `fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50`
 - Modal panel convention:
@@ -81,7 +85,10 @@ Use these conventions for all UI work under `lib/public/js` and `lib/public/css`
 #### Feedback and state
 
 - Use `showToast(...)` for user-visible operation outcomes.
+- Prefer semantic toast levels (`success`, `error`, `warning`, `info`) at callsites. Legacy color aliases are only for backwards compatibility.
+- Keep toast positioning relative to the active page container (not the viewport) when layout banners can shift content.
 - Keep loading/saving flags explicit in state (`saving`, `creating`, `restartingGateway`, etc.).
+- Reuse `<LoadingSpinner />` for loading indicators instead of inline spinner SVG markup.
 - Use polling via `usePolling` for frequently refreshed backend-backed data.
 - For restart-required flows, render the standardized yellow restart banner style used in `providers`, `envars`, and `webhooks`.
 
