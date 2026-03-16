@@ -1,4 +1,7 @@
-const { buildTelegramGitSyncCommand } = require("../../lib/server/routes/telegram");
+const {
+  buildTelegramGitSyncCommand,
+  resolveRequireMentionInput,
+} = require("../../lib/server/routes/telegram");
 
 describe("server/routes/telegram", () => {
   it("quotes git-sync commit messages as a single shell arg", () => {
@@ -19,5 +22,14 @@ describe("server/routes/telegram", () => {
     expect(command).not.toContain("\t");
     expect(command.startsWith("alphaclaw git-sync -m '")).toBe(true);
     expect(command.endsWith("'")).toBe(true);
+  });
+
+  it("preserves existing requireMention when configure requests omit it", () => {
+    expect(resolveRequireMentionInput({})).toBeUndefined();
+  });
+
+  it("parses an explicit requireMention override when present", () => {
+    expect(resolveRequireMentionInput({ requireMention: false })).toBe(false);
+    expect(resolveRequireMentionInput({ requireMention: true })).toBe(true);
   });
 });
