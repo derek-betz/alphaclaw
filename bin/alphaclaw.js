@@ -11,6 +11,9 @@ const {
 } = require("../lib/cli/git-sync");
 const { buildSecretReplacements } = require("../lib/server/helpers");
 const {
+  normalizeUsageTrackerPluginPaths,
+} = require("../lib/server/openclaw-config");
+const {
   migrateManagedInternalFiles,
 } = require("../lib/server/internal-files-migration");
 
@@ -775,8 +778,13 @@ if (fs.existsSync(configPath)) {
       console.log("[alphaclaw] Discord added");
       changed = true;
     }
-    if (!cfg.plugins.load.paths.includes(kUsageTrackerPluginPath)) {
-      cfg.plugins.load.paths.push(kUsageTrackerPluginPath);
+    const normalizedUsageTrackerPaths = normalizeUsageTrackerPluginPaths({
+      fs,
+      paths: cfg.plugins.load.paths,
+      fallbackPath: kUsageTrackerPluginPath,
+    });
+    if (normalizedUsageTrackerPaths.changed) {
+      cfg.plugins.load.paths = normalizedUsageTrackerPaths.paths;
       changed = true;
     }
     if (cfg.plugins.entries["usage-tracker"]?.enabled !== true) {
