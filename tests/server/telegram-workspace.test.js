@@ -116,4 +116,71 @@ describe("server/telegram-workspace", () => {
       "2": { systemPrompt: "Only prompt." },
     });
   });
+
+  it("preserves an existing requireMention value when topic sync omits it", () => {
+    writeOpenclawConfig({
+      dir: openclawDir,
+      config: {
+        channels: {
+          telegram: {
+            groups: {
+              "-1003648762617": {
+                requireMention: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    syncConfigForTelegram({
+      fs,
+      openclawDir,
+      topicRegistry: {
+        getGroup: () => ({
+          topics: {
+            "12": {
+              systemInstructions: "Keep responses tight.",
+            },
+          },
+        }),
+        getTotalTopicCount: () => 1,
+      },
+      groupId: "-1003648762617",
+      resolvedUserId: "",
+    });
+
+    const nextConfig = readOpenclawConfig({ dir: openclawDir });
+    expect(nextConfig.channels.telegram.groups["-1003648762617"]).toEqual({
+      requireMention: true,
+      topics: {
+        "12": {
+          systemPrompt: "Keep responses tight.",
+        },
+      },
+    });
+  });
+
+  it("defaults requireMention to false for a newly created group when omitted", () => {
+    writeOpenclawConfig({
+      dir: openclawDir,
+      config: {},
+    });
+
+    syncConfigForTelegram({
+      fs,
+      openclawDir,
+      topicRegistry: {
+        getGroup: () => ({ topics: {} }),
+        getTotalTopicCount: () => 0,
+      },
+      groupId: "-1003648762617",
+      resolvedUserId: "",
+    });
+
+    const nextConfig = readOpenclawConfig({ dir: openclawDir });
+    expect(nextConfig.channels.telegram.groups["-1003648762617"]).toEqual({
+      requireMention: false,
+    });
+  });
 });

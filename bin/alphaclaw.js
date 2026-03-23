@@ -11,6 +11,9 @@ const {
 } = require("../lib/cli/git-sync");
 const { buildSecretReplacements } = require("../lib/server/helpers");
 const {
+  normalizeUsageTrackerPluginPaths,
+} = require("../lib/server/openclaw-config");
+const {
   migrateManagedInternalFiles,
 } = require("../lib/server/internal-files-migration");
 
@@ -131,13 +134,13 @@ const resolveGithubRepoPath = (value) =>
 // ---------------------------------------------------------------------------
 
 const rootDir =
-  flagValue(globalArgs, "--root-dir") ||
+  flagValue(args, "--root-dir") ||
   process.env.ALPHACLAW_ROOT_DIR ||
   path.join(os.homedir(), ".alphaclaw");
 
 process.env.ALPHACLAW_ROOT_DIR = rootDir;
 
-const portFlag = flagValue(globalArgs, "--port");
+const portFlag = flagValue(args, "--port");
 if (portFlag) {
   process.env.PORT = portFlag;
 }
@@ -466,6 +469,17 @@ if (
   process.exit(runTelegramTopicAdd());
 }
 
+const kPort = String(process.env.PORT || "3000").trim();
+if (kPort === "18789") {
+  console.error(
+    [
+      "[alphaclaw] Fatal config error: AlphaClaw cannot be started on port 18789.",
+      "[alphaclaw] Port 18789 is reserved for the OpenClaw gateway.",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
+
 const kSetupPassword = String(process.env.SETUP_PASSWORD || "").trim();
 if (!kSetupPassword) {
   console.error(
@@ -780,8 +794,13 @@ if (fs.existsSync(configPath)) {
       console.log("[alphaclaw] Discord added");
       changed = true;
     }
-    if (!cfg.plugins.load.paths.includes(kUsageTrackerPluginPath)) {
-      cfg.plugins.load.paths.push(kUsageTrackerPluginPath);
+    const normalizedUsageTrackerPaths = normalizeUsageTrackerPluginPaths({
+      fs,
+      paths: cfg.plugins.load.paths,
+      fallbackPath: kUsageTrackerPluginPath,
+    });
+    if (normalizedUsageTrackerPaths.changed) {
+      cfg.plugins.load.paths = normalizedUsageTrackerPaths.paths;
       changed = true;
     }
     if (cfg.plugins.entries["usage-tracker"]?.enabled !== true) {
