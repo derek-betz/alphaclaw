@@ -27,6 +27,7 @@ const createTestApp = ({ setupPassword, loginThrottle } = {}) => {
   const { registerAuthRoutes } = loadAuthRoutes();
   const app = express();
   app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
   const throttle = loginThrottle || createLoginThrottleMock();
   registerAuthRoutes({ app, loginThrottle: throttle });
 
@@ -76,6 +77,22 @@ describe("server/routes/auth", () => {
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ ok: false, error: "Invalid credentials" });
     expect(throttle.recordLoginFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 400 when the password is missing from the request body", async () => {
+    const { app, throttle } = createTestApp({ setupPassword: "secret" });
+
+    const res = await request(app)
+      .post("/api/auth/login")
+      .set("Content-Type", "application/json")
+      .send("{}");
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      ok: false,
+      error: "Missing password in request body",
+    });
+    expect(throttle.getClientKey).not.toHaveBeenCalled();
   });
 
   it("sets auth cookie on success and allows protected API by cookie", async () => {
