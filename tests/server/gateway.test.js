@@ -45,6 +45,9 @@ const createChild = () => ({
 });
 
 describe("server/gateway restart behavior", () => {
+  const originalProcessOn = process.on;
+  const originalProcessExit = process.exit;
+
   afterEach(() => {
     childProcess.spawn = originalSpawn;
     childProcess.execSync = originalExecSync;
@@ -54,6 +57,8 @@ describe("server/gateway restart behavior", () => {
     fs.readFileSync = originalReadFileSync;
     fs.writeFileSync = originalWriteFileSync;
     net.createConnection = originalCreateConnection;
+    process.on = originalProcessOn;
+    process.exit = originalProcessExit;
     delete require.cache[modulePath];
   });
 
@@ -62,7 +67,7 @@ describe("server/gateway restart behavior", () => {
     const execSyncMock = vi.fn(() => "");
     childProcess.spawn = spawnMock;
     childProcess.execSync = execSyncMock;
-    fs.existsSync = vi.fn(() => true);
+    fs.existsSync = vi.fn((targetPath) => targetPath === kOnboardingMarkerPath);
     net.createConnection = vi.fn(() => createSocket(false));
     delete require.cache[modulePath];
     const gateway = require(modulePath);
@@ -96,12 +101,44 @@ describe("server/gateway restart behavior", () => {
     expect(firstChild.kill).not.toHaveBeenCalled();
   });
 
+  it("prefers the launch-agent service on macOS instead of spawning a child gateway", async () => {
+    const spawnMock = vi.fn(() => createChild());
+    const execSyncMock = vi.fn(() => "");
+    childProcess.spawn = spawnMock;
+    childProcess.execSync = execSyncMock;
+    fs.existsSync = vi.fn((targetPath) => {
+      if (targetPath === kOnboardingMarkerPath) return true;
+      if (String(targetPath).endsWith("/Library/LaunchAgents/ai.openclaw.gateway.plist")) {
+        return true;
+      }
+      return false;
+    });
+    net.createConnection = vi.fn(() => createSocket(false));
+    const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    try {
+      delete require.cache[modulePath];
+      const gateway = require(modulePath);
+
+      await gateway.startGateway();
+
+      expect(execSyncMock).toHaveBeenCalledWith("openclaw gateway start", {
+        env: expect.any(Object),
+        timeout: 15000,
+        encoding: "utf8",
+      });
+      expect(spawnMock).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+  });
+
   it("uses force restart when no managed child exists", () => {
     const spawnMock = vi.fn(() => createChild());
     const execSyncMock = vi.fn(() => "");
     childProcess.spawn = spawnMock;
     childProcess.execSync = execSyncMock;
-    fs.existsSync = vi.fn(() => true);
+    fs.existsSync = vi.fn((targetPath) => targetPath === kOnboardingMarkerPath);
     net.createConnection = vi.fn(() => createSocket(false));
     delete require.cache[modulePath];
     const gateway = require(modulePath);
@@ -130,6 +167,30 @@ describe("server/gateway restart behavior", () => {
     expect(spawnMock).not.toHaveBeenCalled();
   });
 
+  it("does not stop the gateway service when the UI receives SIGTERM", () => {
+    const execSyncMock = vi.fn(() => "");
+    const processOnMock = vi.fn();
+    const processExitMock = vi.fn();
+    childProcess.execSync = execSyncMock;
+    process.on = processOnMock;
+    process.exit = processExitMock;
+    delete require.cache[modulePath];
+    const gateway = require(modulePath);
+
+    gateway.attachGatewaySignalHandlers();
+
+    const termRegistration = processOnMock.mock.calls.find(
+      (call) => call[0] === "SIGTERM",
+    );
+    expect(termRegistration).toBeTruthy();
+
+    const [, onTerm] = termRegistration;
+    onTerm();
+
+    expect(execSyncMock).not.toHaveBeenCalled();
+    expect(processExitMock).toHaveBeenCalledWith(0);
+  });
+
   it("marks managed child exit as expected before force restart", async () => {
     const child = createChild();
     const spawnMock = vi.fn(() => child);
@@ -137,7 +198,7 @@ describe("server/gateway restart behavior", () => {
     const exitHandler = vi.fn();
     childProcess.spawn = spawnMock;
     childProcess.execSync = execSyncMock;
-    fs.existsSync = vi.fn(() => true);
+    fs.existsSync = vi.fn((targetPath) => targetPath === kOnboardingMarkerPath);
     net.createConnection = vi.fn(() => createSocket(false));
     delete require.cache[modulePath];
     const gateway = require(modulePath);
