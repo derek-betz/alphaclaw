@@ -13,16 +13,11 @@ const {
 } = require("../lib/cli/git-runtime");
 const { buildSecretReplacements } = require("../lib/server/helpers");
 const {
+  ensureUsageTrackerPluginEntry,
+} = require("../lib/server/usage-tracker-config");
+const {
   migrateManagedInternalFiles,
 } = require("../lib/server/internal-files-migration");
-
-const kUsageTrackerPluginPath = path.resolve(
-  __dirname,
-  "..",
-  "lib",
-  "plugin",
-  "usage-tracker",
-);
 
 // ---------------------------------------------------------------------------
 // Parse CLI flags
@@ -725,7 +720,10 @@ if (fs.existsSync(configPath)) {
         }
       })();
       const githubToken = String(process.env.GITHUB_TOKEN || "").trim();
-      const gitEnv = { ...process.env };
+      const gitEnv = {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+      };
       const askPassPath = path.join(
         os.tmpdir(),
         `alphaclaw-boot-git-askpass-${process.pid}.sh`,
@@ -753,11 +751,13 @@ if (fs.existsSync(configPath)) {
           cwd: openclawDir,
           stdio: "ignore",
           env: gitEnv,
+          timeout: 10000,
         });
         execSync(`git fetch --quiet origin "${branch}"`, {
           cwd: openclawDir,
           stdio: "ignore",
           env: gitEnv,
+          timeout: 10000,
         });
         try {
           execSync("git show-ref --verify --quiet refs/heads/main", {
@@ -784,6 +784,7 @@ if (fs.existsSync(configPath)) {
             stdio: ["ignore", "pipe", "ignore"],
             encoding: "utf8",
             env: gitEnv,
+            timeout: 10000,
           }),
         );
         if (remoteConfig.trim()) {
@@ -839,12 +840,7 @@ if (fs.existsSync(configPath)) {
       console.log("[alphaclaw] Discord added");
       changed = true;
     }
-    if (!cfg.plugins.load.paths.includes(kUsageTrackerPluginPath)) {
-      cfg.plugins.load.paths.push(kUsageTrackerPluginPath);
-      changed = true;
-    }
-    if (cfg.plugins.entries["usage-tracker"]?.enabled !== true) {
-      cfg.plugins.entries["usage-tracker"] = { enabled: true };
+    if (ensureUsageTrackerPluginEntry(cfg, { fsModule: fs })) {
       changed = true;
     }
 

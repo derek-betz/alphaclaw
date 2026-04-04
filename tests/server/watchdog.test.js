@@ -33,7 +33,11 @@ const createHarness = ({
       })),
   );
   const notifier = { notify: vi.fn(async () => ({ ok: true })) };
-  const launchGatewayProcess = vi.fn(() => ({ pid: 4242 }));
+  const recoverGateway = vi.fn(async () => ({
+    ok: true,
+    mode: "managed_child",
+    pid: 4242,
+  }));
   const readEnvFile = vi.fn(() => []);
   const writeEnvFile = vi.fn();
   const reloadEnv = vi.fn();
@@ -41,7 +45,7 @@ const createHarness = ({
 
   const watchdog = createWatchdog({
     clawCmd,
-    launchGatewayProcess,
+    recoverGateway,
     insertWatchdogEvent,
     notifier,
     readEnvFile,
@@ -56,7 +60,7 @@ const createHarness = ({
     insertWatchdogEvent,
     clawCmd,
     notifier,
-    launchGatewayProcess,
+    recoverGateway,
     readEnvFile,
     writeEnvFile,
     reloadEnv,
@@ -218,6 +222,29 @@ describe("server/watchdog", () => {
     expect(clawCmd).toHaveBeenCalledWith("doctor --fix --yes", { quiet: true });
   });
 
+  it("uses the shared gateway recovery path after a successful repair", async () => {
+    const { watchdog, recoverGateway } = createHarness({
+      autoRepair: true,
+      clawCmdImpl: async (command) => {
+        if (command === "doctor --fix --yes") {
+          return { ok: true, stdout: "fixed" };
+        }
+        return { ok: true, stdout: "" };
+      },
+      fetchImpl: async () => {
+        throw new Error("still unhealthy");
+      },
+    });
+
+    watchdog.onGatewayExit({ code: 1, expectedExit: false });
+    watchdog.onGatewayExit({ code: 1, expectedExit: false });
+    watchdog.onGatewayExit({ code: 1, expectedExit: false });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(recoverGateway).toHaveBeenCalled();
+  });
+
   it("clears crash-loop lifecycle after a healthy check recovery", async () => {
     vi.useFakeTimers();
     let healthChecks = 0;
@@ -359,7 +386,7 @@ describe("server/watchdog", () => {
   });
 
   it("ignores duplicate-launch port-in-use exits", () => {
-    const { watchdog, insertWatchdogEvent, launchGatewayProcess } = createHarness({
+    const { watchdog, insertWatchdogEvent, recoverGateway } = createHarness({
       autoRepair: true,
     });
 
@@ -380,7 +407,7 @@ describe("server/watchdog", () => {
         crashCountInWindow: 0,
       }),
     );
-    expect(launchGatewayProcess).not.toHaveBeenCalled();
+    expect(recoverGateway).not.toHaveBeenCalled();
     expect(insertWatchdogEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: "restart",
@@ -511,6 +538,40 @@ describe("server/watchdog", () => {
         health: "degraded",
       }),
     );
+  });
+
+  it("sends repeated auto-repair failure notice only once per incident", async () => {
+    const { watchdog, notifier } = createHarness({
+      autoRepair: true,
+      clawCmdImpl: async (command) => {
+        if (command === "doctor --fix --yes") {
+          return { ok: false, stderr: "doctor failed" };
+        }
+        return { ok: true, stdout: "" };
+      },
+      fetchImpl: async () => {
+        throw new Error("still unhealthy");
+      },
+    });
+
+    for (let i = 0; i < 3; i += 1) {
+      watchdog.onGatewayExit({ code: 1, expectedExit: false });
+    }
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+    for (let i = 0; i < 3; i += 1) {
+      watchdog.onGatewayExit({ code: 1, expectedExit: false });
+    }
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(
+      notifier.notify.mock.calls.filter((call) =>
+        String(call?.[0] || "").includes("🔴 Auto-repair failed repeatedly"),
+      ),
+    ).toHaveLength(1);
   });
 
   it("does not set uptimeStartedAt on start — waits for onGatewayLaunch", () => {

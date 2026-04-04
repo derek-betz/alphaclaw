@@ -119,7 +119,12 @@ describe("server/gateway restart behavior", () => {
 
   it("prefers the launch-agent service on macOS instead of spawning a child gateway", async () => {
     const spawnMock = vi.fn(() => createChild());
-    const execSyncMock = vi.fn(() => "");
+    const execSyncMock = vi.fn((command) => {
+      if (String(command).startsWith("launchctl print ")) {
+        throw new Error("service not loaded");
+      }
+      return "";
+    });
     childProcess.spawn = spawnMock;
     childProcess.execSync = execSyncMock;
     fs.existsSync = vi.fn((targetPath) => {
@@ -139,6 +144,88 @@ describe("server/gateway restart behavior", () => {
       await gateway.startGateway();
 
       expect(execSyncMock).toHaveBeenCalledWith("openclaw gateway start", {
+        env: expect.any(Object),
+        timeout: 15000,
+        encoding: "utf8",
+      });
+      expect(spawnMock).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+  });
+
+  it("does not call service start again when the gateway LaunchAgent is already loaded", async () => {
+    const spawnMock = vi.fn(() => createChild());
+    const execSyncMock = vi.fn((command) => {
+      if (String(command).startsWith("launchctl print ")) return "";
+      return "";
+    });
+    childProcess.spawn = spawnMock;
+    childProcess.execSync = execSyncMock;
+    fs.existsSync = vi.fn((targetPath) => {
+      if (targetPath === kOnboardingMarkerPath) return true;
+      if (String(targetPath).endsWith("/Library/LaunchAgents/ai.openclaw.gateway.plist")) {
+        return true;
+      }
+      return false;
+    });
+    net.createConnection = vi.fn(() => createSocket(false));
+    const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    try {
+      delete require.cache[modulePath];
+      const gateway = require(modulePath);
+
+      await gateway.startGateway();
+
+      expect(execSyncMock).toHaveBeenCalledWith(
+        expect.stringMatching(/^launchctl print gui\/\d+\/ai\.openclaw\.gateway$/),
+        expect.objectContaining({
+          stdio: "ignore",
+          timeout: 5000,
+        }),
+      );
+      expect(execSyncMock).not.toHaveBeenCalledWith(
+        "openclaw gateway start",
+        expect.anything(),
+      );
+      expect(spawnMock).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+  });
+
+  it("uses a service restart for recovery when launchd owns the gateway but it is not responding", async () => {
+    const spawnMock = vi.fn(() => createChild());
+    const execSyncMock = vi.fn((command) => {
+      if (String(command).startsWith("launchctl print ")) return "";
+      return "";
+    });
+    childProcess.spawn = spawnMock;
+    childProcess.execSync = execSyncMock;
+    fs.existsSync = vi.fn((targetPath) => {
+      if (targetPath === kOnboardingMarkerPath) return true;
+      if (String(targetPath).endsWith("/Library/LaunchAgents/ai.openclaw.gateway.plist")) {
+        return true;
+      }
+      return false;
+    });
+    net.createConnection = vi.fn(() => createSocket(false));
+    const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    try {
+      delete require.cache[modulePath];
+      const gateway = require(modulePath);
+
+      const result = await gateway.recoverGateway();
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          ok: true,
+          mode: "service_restart",
+        }),
+      );
+      expect(execSyncMock).toHaveBeenCalledWith("openclaw gateway restart", {
         env: expect.any(Object),
         timeout: 15000,
         encoding: "utf8",
