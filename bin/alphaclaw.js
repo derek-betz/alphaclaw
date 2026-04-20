@@ -927,5 +927,23 @@ try {
 // 14. Start Express server
 // ---------------------------------------------------------------------------
 
+const ensureBuiltUiAssets = () => {
+  const runtimeDir = path.join(__dirname, "..");
+  const appBundlePath = path.join(runtimeDir, "lib", "public", "dist", "app.bundle.js");
+  if (fs.existsSync(appBundlePath)) return;
+
+  console.log("[alphaclaw] UI bundle missing; rebuilding frontend assets...");
+  execSync("npm run build:ui", {
+    cwd: runtimeDir,
+    stdio: "inherit",
+    timeout: 180000,
+  });
+
+  if (!fs.existsSync(appBundlePath)) {
+    throw new Error("UI bundle rebuild completed but dist/app.bundle.js is still missing");
+  }
+};
+
+ensureBuiltUiAssets();
 console.log("[alphaclaw] Setup complete -- starting server");
 require("../lib/server.js");
