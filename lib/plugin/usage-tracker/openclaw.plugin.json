@@ -1,5 +1,8 @@
 {
   "id": "usage-tracker",
+  "hooks": {
+    "allowConversationAccess": true
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
