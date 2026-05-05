@@ -116,4 +116,74 @@ describe("server/telegram-workspace", () => {
       "2": { systemPrompt: "Only prompt." },
     });
   });
+
+  it("preserves an existing group requireMention setting when omitted", () => {
+    writeOpenclawConfig({
+      dir: openclawDir,
+      config: {
+        channels: {
+          telegram: {
+            groups: {
+              "-1003648762617": {
+                requireMention: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const topicRegistry = {
+      getGroup: () => ({
+        topics: {
+          "7": { name: "General", agentId: "default" },
+        },
+      }),
+      getTotalTopicCount: () => 1,
+    };
+
+    syncConfigForTelegram({
+      fs,
+      openclawDir,
+      topicRegistry,
+      groupId: "-1003648762617",
+      resolvedUserId: "",
+    });
+
+    const nextConfig = readOpenclawConfig({ dir: openclawDir });
+    expect(
+      nextConfig.channels.telegram.groups["-1003648762617"].requireMention,
+    ).toBe(true);
+  });
+
+  it("defaults requireMention to false only for newly created group config", () => {
+    writeOpenclawConfig({
+      dir: openclawDir,
+      config: {
+        channels: {
+          telegram: {
+            groups: {},
+          },
+        },
+      },
+    });
+
+    const topicRegistry = {
+      getGroup: () => ({ topics: {} }),
+      getTotalTopicCount: () => 0,
+    };
+
+    syncConfigForTelegram({
+      fs,
+      openclawDir,
+      topicRegistry,
+      groupId: "-1001234567890",
+      resolvedUserId: "",
+    });
+
+    const nextConfig = readOpenclawConfig({ dir: openclawDir });
+    expect(
+      nextConfig.channels.telegram.groups["-1001234567890"].requireMention,
+    ).toBe(false);
+  });
 });
